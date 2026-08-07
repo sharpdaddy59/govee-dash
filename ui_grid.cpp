@@ -36,7 +36,7 @@ static void grid_dims(uint8_t n, uint8_t& cols, uint8_t& rows) {
 static TileFonts fonts_for(uint8_t n) {
   if (n <= 1) return {3, 6, 4, 2};
   if (n == 2) return {2, 4, 3, 1};
-  if (n <= 4) return {1, 3, 2, 1};
+  if (n <= 4) return {2, 3, 2, 1};
   return {1, 2, 2, 1};
 }
 
