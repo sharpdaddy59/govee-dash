@@ -1,0 +1,89 @@
+name: Build firmware
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:   # lets you smoke-test the build without cutting a tag
+
+permissions:
+  contents: write      # required for softprops/action-gh-release
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # arduino-cli requires the sketch directory's leaf name to match the
+      # .ino's basename. Check out into an explicit govee-dash/ subdir so
+      # the leaf-name rule holds even if the GitHub repo is ever renamed.
+      - uses: actions/checkout@v5
+        with:
+          path: govee-dash
+
+      # arduino/setup-arduino-cli has no Node-24 release yet (latest is v2,
+      # which runs on Node 20). GitHub force-runs it on Node 24 from
+      # 2026-06-02; bump to v3 once Arduino ships one.
+      - uses: arduino/setup-arduino-cli@v2
+
+      - name: Cache board package + libraries
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.arduino15
+            ~/Arduino/libraries
+          key: arduino-${{ runner.os }}-${{ hashFiles('govee-dash/.github/workflows/release.yml') }}
+
+      - name: Configure arduino-cli + install ESP32 core
+        run: |
+          arduino-cli config init --overwrite
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32
+
+      - name: Install libraries
+        run: |
+          # Keep this list in sync with setup.ps1. NimBLE-Arduino is
+          # pinned to 2.x — the line compatible with the esp32:esp32 3.x
+          # core; 1.4.x compiles but aborts at boot.
+          arduino-cli lib install \
+            "LovyanGFX" "WiFiManager" "ArduinoJson" "NimBLE-Arduino@2.5.0"
+
+      - name: Compile
+        working-directory: govee-dash
+        run: |
+          # Match build.ps1: PartitionScheme=min_spiffs gives a 1.9 MB
+          # app partition — required; the sketch exceeds the default
+          # scheme's 1.31 MB slot.
+          arduino-cli compile \
+            --fqbn esp32:esp32:esp32 \
+            --board-options PartitionScheme=min_spiffs \
+            --warnings default \
+            --export-binaries \
+            .
+
+      - name: Stage release assets
+        working-directory: govee-dash
+        run: |
+          set -euo pipefail
+          # --export-binaries drops artifacts in a board-option-suffixed
+          # subdir of build/ whose exact name varies with the arduino-cli
+          # version and FQBN options, so locate them instead of hardcoding.
+          BIN="$(find build -name 'govee-dash.ino.bin' -print -quit)"
+          ELF="$(find build -name 'govee-dash.ino.elf' -print -quit)"
+          if [[ -z "$BIN" || -z "$ELF" ]]; then
+            echo "::error::Build artifacts not found under build/"
+            find build -type f
+            exit 1
+          fi
+          TAG="${GITHUB_REF_NAME}"
+          mkdir -p dist
+          cp "$BIN" "dist/govee-dash-${TAG}.bin"
+          cp "$ELF" "dist/govee-dash-${TAG}.elf"
+          ls -lh dist
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            govee-dash/dist/govee-dash-*.bin
+            govee-dash/dist/govee-dash-*.elf
+          generate_release_notes: true
