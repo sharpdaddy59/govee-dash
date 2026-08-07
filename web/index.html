@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang=en>
+<meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>govee-dash</title>
+<!--
+  govee-dash settings SPA. Single self-contained file — no external
+  fetches (the dashboard lives on a LAN that may have no internet).
+  Source of truth for the served page: this file is gzipped into
+  web_assets.h by tools/gen-web-assets.ps1. Edit here, then regenerate.
+-->
+<style>
+  :root { color-scheme: dark }
+  * { box-sizing: border-box }
+  body {
+    font-family: system-ui, -apple-system, sans-serif;
+    background: #0e1116; color: #d6dde6;
+    max-width: 560px; margin: 0 auto; padding: 1rem 1rem 3rem;
+  }
+  h1 { font-size: 1.3rem; margin: .2rem 0 }
+  h2 {
+    font-size: .8rem; text-transform: uppercase; letter-spacing: .08em;
+    color: #7b8794; margin: 1.7rem 0 .5rem;
+    border-bottom: 1px solid #232a33; padding-bottom: .3rem;
+  }
+  .sub { color: #7b8794; font-size: .85rem; margin: 0 0 .5rem }
+  .muted { color: #7b8794; font-size: .8rem; margin: .4rem 0 0 }
+  code { background: #222a35; padding: 1px 5px; border-radius: 4px; font-size: .85em }
+  .card {
+    background: #171c24; border: 1px solid #232a33; border-radius: 8px;
+    padding: .7rem .8rem; margin: .5rem 0;
+  }
+  .dev-name { font-weight: 600; font-size: 1.05rem }
+  .dot {
+    display: inline-block; width: .62rem; height: .62rem;
+    border-radius: 50%; margin-right: .45rem; vertical-align: middle;
+  }
+  .badge {
+    display: inline-block; font-size: .7rem; font-weight: 600;
+    background: #222a35; color: #9aa7b4; border-radius: 4px;
+    padding: 1px 6px; margin-left: .45rem; vertical-align: middle;
+  }
+  .readings { color: #9aa7b4; font-size: .9rem; margin: .35rem 0 }
+  .readings b { color: #d6dde6; font-weight: 600 }
+  .row { display: flex; gap: .4rem; align-items: center; flex-wrap: wrap }
+  input, select, button {
+    font: inherit; padding: .42rem .6rem; border-radius: 6px;
+    border: 1px solid #2f3742; background: #0e1116; color: #d6dde6;
+  }
+  input { flex: 1; min-width: 8rem }
+  input[type=file] { padding: .3rem }
+  input[type=checkbox] { flex: none; min-width: 0 }
+  button { background: #2563eb; border-color: #2563eb; color: #fff; cursor: pointer }
+  button.sec { background: #222a35; border-color: #2f3742; color: #d6dde6 }
+  button.danger { background: #3a1d1d; border-color: #5c2b2b; color: #f0b4b4 }
+  button:active { transform: translateY(1px) }
+  button:disabled { opacity: .5; cursor: not-allowed }
+  .seg { gap: 0 }
+  .seg button { border-radius: 0; flex: 1; background: #222a35; border-color: #2f3742; color: #d6dde6 }
+  .seg button:first-child { border-radius: 6px 0 0 6px }
+  .seg button:last-child { border-radius: 0 6px 6px 0 }
+  .seg button.on { background: #2563eb; border-color: #2563eb; color: #fff }
+  label.fld { display: block; font-size: .85rem; color: #9aa7b4; margin: .8rem 0 .3rem }
+  label.fld:first-child { margin-top: 0 }
+  label.chk { font-size: .85rem; color: #9aa7b4; display: flex; align-items: center; gap: .3rem }
+  progress { width: 100%; height: 1.1rem; margin-top: .5rem }
+  .api a {
+    color: #7cc0ff; text-decoration: none; font-size: .9rem;
+    border: 1px solid #2f3742; border-radius: 6px;
+    padding: .3rem .65rem; background: #0e1116;
+  }
+  .api a:hover { border-color: #2563eb }
+  #toast {
+    position: fixed; left: 50%; bottom: 1rem; transform: translateX(-50%);
+    background: #222a35; border: 1px solid #2f3742; color: #d6dde6;
+    padding: .55rem 1rem; border-radius: 6px; max-width: 90%;
+    opacity: 0; transition: opacity .2s; pointer-events: none;
+  }
+  #toast.show { opacity: 1 }
+</style>
+
+<h1 id=host>govee-dash</h1>
+<p class=sub id=fw>&nbsp;</p>
+
+<h2>Sensors</h2>
+<div id=devices></div>
+<div id=ignored-wrap hidden>
+  <label class=fld>Ignored sensors</label>
+  <div id=ignored></div>
+</div>
+
+<h2>Display</h2>
+<div class=card>
+  <label class=fld>Backlight</label>
+  <div class="row seg" id=bl>
+    <button data-m=auto onclick="setBl('auto')">Auto</button>
+    <button data-m=full onclick="setBl('full')">Full</button>
+    <button data-m=dim  onclick="setBl('dim')">Dim</button>
+  </div>
+  <label class=fld>Temperature unit</label>
+  <div class="row seg" id=tu>
+    <button data-u=celsius onclick="setUnit('celsius')">&deg;C</button>
+    <button data-u=fahrenheit onclick="setUnit('fahrenheit')">&deg;F</button>
+  </div>
+  <label class=fld>Auto-forget offline sensors</label>
+  <div class=row>
+    <select id=expiry onchange=setExpiry()>
+      <option value=0>Never</option>
+      <option value=24>After 1 day</option>
+      <option value=72>After 3 days</option>
+      <option value=168>After 1 week</option>
+    </select>
+  </div>
+  <p class=muted>A sensor unheard for this long is dropped from the
+    display automatically. It reappears if it comes back into range.</p>
+</div>
+
+<h2>Logging</h2>
+<div class=card>
+  <p class=muted>microSD card: <code id=sdlog>&hellip;</code>. With a card
+    inserted, sensor readings are appended to a dated CSV file
+    (<code>/govee-YYYY-MM.csv</code>, one per month).</p>
+  <label class=fld>Log files</label>
+  <div id=logs class=muted>&hellip;</div>
+  <label class=fld>Log timestamp timezone</label>
+  <div class=row>
+    <select id=tz onchange=setTz()>
+      <option value="">UTC</option>
+      <option value="EST5EDT,M3.2.0,M11.1.0">US Eastern</option>
+      <option value="CST6CDT,M3.2.0,M11.1.0">US Central</option>
+      <option value="MST7MDT,M3.2.0,M11.1.0">US Mountain</option>
+      <option value="MST7">US Mountain (Arizona)</option>
+      <option value="PST8PDT,M3.2.0,M11.1.0">US Pacific</option>
+      <option value="AKST9AKDT,M3.2.0,M11.1.0">US Alaska</option>
+      <option value="HST10">US Hawaii</option>
+      <option value="GMT0BST,M3.5.0/1,M10.5.0">UK / Ireland</option>
+      <option value="CET-1CEST,M3.5.0,M10.5.0/3">Central Europe</option>
+      <option value="EET-2EEST,M3.5.0/3,M10.5.0/4">Eastern Europe</option>
+      <option value="IST-5:30">India</option>
+      <option value="CST-8">China</option>
+      <option value="JST-9">Japan</option>
+      <option value="AEST-10AEDT,M10.1.0,M4.1.0/3">Australia (Sydney)</option>
+      <option value="AEST-10">Australia (Brisbane)</option>
+      <option value="NZST-12NZDT,M9.5.0,M4.1.0/3">New Zealand</option>
+    </select>
+  </div>
+  <p class=muted>Timezone for the CSV <code>timestamp</code> column &mdash;
+    daylight saving is handled automatically. &ldquo;UTC&rdquo; logs a
+    trailing <code>Z</code>; other zones log a <code>&plusmn;HH:MM</code>
+    offset.</p>
+</div>
+
+<h2>Actions</h2>
+<div class=card>
+  <div class=row>
+    <button class=danger onclick=wifiReset()>Reset WiFi</button>
+  </div>
+</div>
+
+<h2>Firmware</h2>
+<div class=card>
+  <p class=muted>Running <code id=fwver>&hellip;</code>. Upload a
+    govee-dash <code>.bin</code> built for the CYD — the device verifies
+    the image and reboots into it. An interrupted or invalid upload
+    leaves the current firmware running.</p>
+  <div class=row>
+    <input type=file id=fwfile accept=".bin">
+    <button id=fwbtn onclick=uploadFw()>Update</button>
+  </div>
+  <progress id=fwprog value=0 max=100 hidden></progress>
+  <div class=muted id=fwstatus></div>
+</div>
+
+<h2>API</h2>
+<div class=card>
+  <p class=muted>Live JSON served by this device — open in a new tab.</p>
+  <div class="row api">
+    <a href=/devices target=_blank rel=noopener>/devices</a>
+    <a href=/config target=_blank rel=noopener>/config</a>
+    <a href=/status target=_blank rel=noopener>/status</a>
+  </div>
+</div>
+
+<div id=toast></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let cfg = { ignored: [] };
+let pollTimer = null;
+
+function startPolling() {
+  if (!pollTimer) pollTimer = setInterval(loadDevices, 5000);
+}
+function stopPolling() {
+  clearInterval(pollTimer);
+  pollTimer = null;
+}
+
+function toast(m) {
+  const t = $('#toast');
+  t.textContent = m;
+  t.classList.add('show');
+  clearTimeout(t._t);
+  t._t = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"]/g,
+    c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+async function post(url, data) {
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams(data).toString(),
+  });
+  if (!r.ok) throw new Error((await r.text()) || r.status);
+  return r;
+}
+
+// Temperature arrives as Celsius on the wire; render in the pref unit.
+function fmtTemp(c) {
+  if (c == null) return '—';
+  const f = cfg.temp_unit === 'fahrenheit';
+  const v = f ? c * 9 / 5 + 32 : c;
+  return (Math.round(v * 10) / 10) + (f ? '°F' : '°C');
+}
+
+function fmt(v, suffix) {
+  return (v == null) ? '—' : (Math.round(v * 10) / 10) + suffix;
+}
+
+function fmtAge(s) {
+  if (s == null) return '—';
+  if (s < 90) return s + 's ago';
+  if (s < 5400) return Math.round(s / 60) + 'm ago';
+  return Math.round(s / 3600) + 'h ago';
+}
+
+function fmtSize(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+  return (b / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+async function loadLogs() {
+  let list = [];
+  try { list = await (await fetch('/logs')).json(); } catch (e) {}
+  const box = $('#logs');
+  if (!list.length) {
+    box.textContent = 'No log files (insert a microSD card to start logging).';
+    return;
+  }
+  list.sort((a, b) => a.name < b.name ? 1 : -1);   // newest date first
+  box.innerHTML = list.map(f =>
+    '<div><a href="/logs/download?file=' + encodeURIComponent(f.name) + '">' +
+    esc(f.name) + '</a> <span class=muted>' + fmtSize(f.size) + '</span></div>'
+  ).join('');
+}
+
+async function loadConfig() {
+  cfg = await (await fetch('/config')).json();
+  $('#host').textContent = cfg.hostname || 'govee-dash';
+  $('#fw').textContent = 'Firmware ' + cfg.fw_version;
+  $('#fwver').textContent = cfg.fw_version;
+  document.title = cfg.hostname || 'govee-dash';
+
+  document.querySelectorAll('#bl button').forEach(
+    b => b.classList.toggle('on', b.dataset.m === cfg.brightness));
+  document.querySelectorAll('#tu button').forEach(
+    b => b.classList.toggle('on', b.dataset.u === cfg.temp_unit));
+  $('#sdlog').textContent = cfg.sdlog || 'unknown';
+  $('#tz').value = cfg.timezone || '';
+
+  const sel = $('#expiry');
+  if (![...sel.options].some(o => +o.value === cfg.expiry_hours)) {
+    const o = document.createElement('option');
+    o.value = cfg.expiry_hours;
+    o.textContent = 'After ' + cfg.expiry_hours + ' h';
+    sel.appendChild(o);
+  }
+  sel.value = cfg.expiry_hours;
+
+  renderIgnored();
+}
+
+function renderIgnored() {
+  const wrap = $('#ignored-wrap'), box = $('#ignored');
+  const list = cfg.ignored || [];
+  wrap.hidden = !list.length;
+  box.innerHTML = '';
+  for (const mac of list) {
+    const c = document.createElement('div');
+    c.className = 'card';
+    c.innerHTML = '<div class=row><code>' + esc(mac) + '</code>' +
+      '<button class=sec>Unignore</button></div>';
+    c.querySelector('button').onclick = () => unignore(mac);
+    box.appendChild(c);
+  }
+}
+
+async function loadDevices() {
+  // Don't rebuild the list while a display-name field is focused — the
+  // rebuild replaces the <input> and would discard the unsaved text.
+  // Polling resumes on the next cycle once the field loses focus.
+  const active = document.activeElement;
+  if (active && active.classList.contains('alias')) return;
+
+  let list;
+  try {
+    list = await (await fetch('/devices')).json();
+  } catch (e) {
+    return;  // transient — keep the last render, try again next poll
+  }
+  const box = $('#devices');
+  if (!list.length) {
+    box.innerHTML = '<div class="card muted">No sensors yet — ' +
+      'listening for Govee BLE advertisements.</div>';
+    return;
+  }
+  box.innerHTML = '';
+  for (const d of list) {
+    const color = d.stale ? '#5c6470' : '#37c871';
+    const c = document.createElement('div');
+    c.className = 'card';
+    c.innerHTML =
+      '<div class=dev-name><span class=dot style="background:' + color + '"></span>' +
+      esc(d.alias || d.hostname) +
+      '<span class=badge>' + esc(d.model) + '</span></div>' +
+      '<div class=readings>Temp <b>' + fmtTemp(d.temp_c) + '</b> &middot; ' +
+      'Humidity <b>' + fmt(d.humidity, '%') + '</b> &middot; ' +
+      'Battery <b>' + fmt(d.battery_pct, '%') + '</b></div>' +
+      '<div class=muted>' + esc(d.hostname) + ' &middot; ' + esc(d.mac) +
+      ' &middot; RSSI ' + d.rssi + ' &middot; ' + fmtAge(d.last_seen_s) +
+      (d.stale ? ' &middot; stale' : '') + '</div>' +
+      '<div class=row style="margin-top:.55rem">' +
+      '<input class=alias placeholder="display name" maxlength=31 ' +
+      'value="' + esc(d.alias || '') + '" autocomplete=off>' +
+      '<button class=save>Save</button>' +
+      '<button class="danger rm">Forget</button>' +
+      '</div>' +
+      '<label class=chk><input type=checkbox class=ign> also ignore ' +
+      '(blocks it from reappearing)</label>';
+    const inp = c.querySelector('.alias');
+    c.querySelector('.save').onclick = () => saveAlias(d.hostname, inp.value);
+    c.querySelector('.rm').onclick =
+      () => forget(d, c.querySelector('.ign').checked);
+    box.appendChild(c);
+  }
+}
+
+async function saveAlias(host, alias) {
+  try {
+    await post('/config/alias', { hostname: host, alias: alias.trim() });
+    toast('Display name saved');
+    await refresh();
+  } catch (e) { toast('Failed: ' + e.message); }
+}
+
+async function forget(d, ignore) {
+  const name = d.alias || d.hostname;
+  const msg = ignore
+    ? 'Forget ' + name + ' and block it from reappearing?'
+    : 'Forget ' + name + '? If it is still broadcasting it will ' +
+      'reappear in a few seconds — tick "also ignore" to block it.';
+  if (!confirm(msg)) return;
+  try {
+    await post('/devices/forget',
+               ignore ? { mac: d.mac, ignore: 1 } : { mac: d.mac });
+    toast(ignore ? 'Sensor forgotten and ignored' : 'Sensor forgotten');
+    await refresh();
+  } catch (e) { toast('Failed: ' + e.message); }
+}
+
+async function unignore(mac) {
+  try {
+    await post('/devices/unignore', { mac });
+    toast('Sensor unignored — it will reappear if in range');
+    await refresh();
+  } catch (e) { toast('Failed: ' + e.message); }
+}
+
+async function setBl(mode) {
+  try {
+    await post('/config/brightness', { mode });
+    await loadConfig();
+    toast('Backlight: ' + mode);
+  } catch (e) { toast('Failed: ' + e.message); }
+}
+
+async function setUnit(u) {
+  try {
+    await post('/config/units', { unit: u });
+    await loadConfig();
+    await loadDevices();   // re-render temps in the new unit
+    toast('Temperature unit: ' + u);
+  } catch (e) { toast('Failed: ' + e.message); }
+}
+
+async function setTz() {
+  try {
+    await post('/config/timezone', { tz: $('#tz').value });
+    toast('Log timezone updated');
+  } catch (e) { toast('Failed: ' + e.message); }
+}
+
+async function setExpiry() {
+  try {
+    await post('/config/expiry', { hours: $('#expiry').value });
+    toast('Auto-forget updated');
+  } catch (e) { toast('Failed: ' + e.message); }
+}
+
+async function wifiReset() {
+  if (!confirm('Wipe WiFi credentials and reboot into setup mode?')) return;
+  try {
+    await post('/wifi/reset', {});
+    toast('Rebooting into the setup access point.');
+  } catch (e) { toast('Failed: ' + e.message); }
+}
+
+// Firmware update — XMLHttpRequest (not fetch) for upload progress
+// events. The HTTP server is single-threaded, so polling is paused for
+// the duration to avoid competing with the upload.
+function uploadFw() {
+  const file = $('#fwfile').files[0];
+  if (!file) { toast('Choose a .bin file first'); return; }
+  if (!confirm('Flash ' + file.name + ' (' + Math.round(file.size / 1024) +
+               ' KB) and reboot the dashboard?')) return;
+
+  const btn = $('#fwbtn'), fileInput = $('#fwfile');
+  const prog = $('#fwprog'), st = $('#fwstatus');
+  const fd = new FormData();
+  fd.append('firmware', file);
+
+  const xhr = new XMLHttpRequest();
+  xhr.upload.onprogress = e => {
+    if (e.lengthComputable) {
+      prog.value = Math.round(e.loaded / e.total * 100);
+      st.textContent = 'Uploading ' + prog.value + '%';
+    }
+  };
+  xhr.onload = () => {
+    if (xhr.status >= 200 && xhr.status < 300) {
+      prog.value = 100;
+      st.textContent = 'Image verified — the device is rebooting. ' +
+        'Reload this page in about 20 seconds.';
+    } else {
+      let msg = xhr.responseText;
+      try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) {}
+      st.textContent = 'Update failed: ' + msg;
+      btn.disabled = false;
+      fileInput.disabled = false;
+      startPolling();
+    }
+  };
+  xhr.onerror = () => {
+    st.textContent = 'Connection lost during upload.';
+    btn.disabled = false;
+    fileInput.disabled = false;
+    startPolling();
+  };
+
+  stopPolling();
+  btn.disabled = true;
+  fileInput.disabled = true;
+  prog.hidden = false;
+  prog.value = 0;
+  st.textContent = 'Starting upload…';
+  xhr.open('POST', '/ota/upload');
+  xhr.send(fd);
+}
+
+async function refresh() {
+  await loadConfig();
+  await loadDevices();
+  await loadLogs();
+}
+
+refresh();
+startPolling();
+</script>
