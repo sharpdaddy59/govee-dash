@@ -1,4 +1,5 @@
 #include "prefs.h"
+#include "config.h"
 #include <Preferences.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
@@ -22,6 +23,7 @@ static uint8_t        s_rot    = 4;        // CYD landscape (panel swap + offset
 static TempUnitPref   s_units  = TEMP_UNIT_CELSIUS;
 static String         s_tz;                // POSIX TZ for SD-log timestamps ("" = UTC)
 static uint16_t       s_expiry = 0;        // auto-forget hours; 0 = never
+static uint16_t       s_logmin = SD_LOG_INTERVAL_DEFAULT_MIN;  // SD-log cadence, minutes
 
 // Ignore list lives in RAM for cheap per-advert lookups from the scan
 // task; the HTTP handler (loop task) mutates it. The mutex covers the
@@ -71,12 +73,14 @@ void prefs_load() {
     s_units  = TEMP_UNIT_CELSIUS;
     s_tz     = "";
     s_expiry = 0;
+    s_logmin = SD_LOG_INTERVAL_DEFAULT_MIN;
     s_ui.begin("gdash-ui", false);
     s_ui.putUChar("mode",    (uint8_t)s_mode);
     s_ui.putUChar("rot",     s_rot);
     s_ui.putUChar("unit",    (uint8_t)s_units);
     s_ui.putString("tz",     s_tz);
     s_ui.putUShort("expiry", s_expiry);
+    s_ui.putUShort("logmin", s_logmin);
     s_ui.putUChar("schema",  PREFS_SCHEMA);
     s_ui.end();
   } else {
@@ -86,6 +90,7 @@ void prefs_load() {
     s_units  = (TempUnitPref)s_ui.getUChar("unit", TEMP_UNIT_CELSIUS);
     s_tz     = s_ui.getString("tz", "");
     s_expiry = s_ui.getUShort("expiry", 0);
+    s_logmin = s_ui.getUShort("logmin", SD_LOG_INTERVAL_DEFAULT_MIN);
     s_ui.end();
   }
   load_ignored();
@@ -98,6 +103,7 @@ void prefs_save() {
   s_ui.putUChar("unit",    (uint8_t)s_units);
   s_ui.putString("tz",     s_tz);
   s_ui.putUShort("expiry", s_expiry);
+  s_ui.putUShort("logmin", s_logmin);
   s_ui.end();
 }
 
@@ -123,6 +129,14 @@ uint16_t prefs_expiry_hours() { return s_expiry; }
 void     prefs_set_expiry_hours(uint16_t h) {
   if (h > EXPIRY_HOURS_MAX) h = EXPIRY_HOURS_MAX;
   s_expiry = h;
+  prefs_save();
+}
+
+uint16_t prefs_log_interval_min() { return s_logmin; }
+void     prefs_set_log_interval_min(uint16_t m) {
+  if (m < 1) m = 1;
+  if (m > LOG_INTERVAL_MAX_MIN) m = LOG_INTERVAL_MAX_MIN;
+  s_logmin = m;
   prefs_save();
 }
 

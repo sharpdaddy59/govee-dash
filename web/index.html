@@ -122,6 +122,18 @@
     (<code>/govee-YYYY-MM.csv</code>, one per month).</p>
   <label class=fld>Log files</label>
   <div id=logs class=muted>&hellip;</div>
+  <label class=fld>Log interval</label>
+  <div class=row>
+    <select id=logint onchange=setLogInterval()>
+      <option value=1>Every minute</option>
+      <option value=5>Every 5 minutes</option>
+      <option value=15>Every 15 minutes</option>
+      <option value=30>Every 30 minutes</option>
+      <option value=60>Every hour</option>
+    </select>
+  </div>
+  <p class=muted>How often a row is appended for each sensor. Applies
+    immediately &mdash; no reboot needed.</p>
   <label class=fld>Log timestamp timezone</label>
   <div class=row>
     <select id=tz onchange=setTz()>
@@ -282,6 +294,15 @@ async function loadConfig() {
   }
   sel.value = cfg.expiry_hours;
 
+  const li = $('#logint');
+  if (![...li.options].some(o => +o.value === cfg.log_interval_min)) {
+    const o = document.createElement('option');
+    o.value = cfg.log_interval_min;
+    o.textContent = 'Every ' + cfg.log_interval_min + ' min';
+    li.appendChild(o);
+  }
+  li.value = cfg.log_interval_min;
+
   renderIgnored();
 }
 
@@ -402,6 +423,13 @@ async function setTz() {
   try {
     await post('/config/timezone', { tz: $('#tz').value });
     toast('Log timezone updated');
+  } catch (e) { toast('Failed: ' + e.message); }
+}
+
+async function setLogInterval() {
+  try {
+    await post('/config/loginterval', { minutes: $('#logint').value });
+    toast('Log interval updated');
   } catch (e) { toast('Failed: ' + e.message); }
 }
 

@@ -142,9 +142,10 @@ static void handle_config_get() {
   doc["brightness"] = bl;
   doc["temp_unit"]  = (prefs_temp_unit() == TEMP_UNIT_FAHRENHEIT)
                           ? "fahrenheit" : "celsius";
-  doc["sdlog"]        = sdlog_active() ? "logging" : "no card";
-  doc["timezone"]     = prefs_timezone();
-  doc["expiry_hours"] = prefs_expiry_hours();
+  doc["sdlog"]            = sdlog_active() ? "logging" : "no card";
+  doc["timezone"]         = prefs_timezone();
+  doc["expiry_hours"]     = prefs_expiry_hours();
+  doc["log_interval_min"] = prefs_log_interval_min();
 
   JsonArray ig = doc.createNestedArray("ignored");
   uint8_t n = prefs_ignored_count();
@@ -208,6 +209,20 @@ static void handle_config_expiry() {
   if (v < 0) v = 0;
   if (v > EXPIRY_HOURS_MAX) v = EXPIRY_HOURS_MAX;
   prefs_set_expiry_hours((uint16_t)v);
+  send_ok();
+}
+
+// POST /config/loginterval — form arg minutes=N. sdlog_loop re-reads the
+// pref every pass, so the new cadence applies without a reboot.
+static void handle_config_loginterval() {
+  if (!s_server.hasArg("minutes")) {
+    s_server.send(400, "text/plain", "need minutes");
+    return;
+  }
+  long v = s_server.arg("minutes").toInt();
+  if (v < 1) v = 1;
+  if (v > LOG_INTERVAL_MAX_MIN) v = LOG_INTERVAL_MAX_MIN;
+  prefs_set_log_interval_min((uint16_t)v);
   send_ok();
 }
 
@@ -280,6 +295,7 @@ void http_server_begin() {
   s_server.on("/config/units",      HTTP_POST, handle_config_units);
   s_server.on("/config/timezone",   HTTP_POST, handle_config_timezone);
   s_server.on("/config/expiry",     HTTP_POST, handle_config_expiry);
+  s_server.on("/config/loginterval", HTTP_POST, handle_config_loginterval);
   s_server.on("/config/alias",      HTTP_POST, handle_config_alias);
   s_server.on("/logs",              HTTP_GET,  handle_logs_get);
   s_server.on("/logs/download",     HTTP_GET,  handle_logs_download);

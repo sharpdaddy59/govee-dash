@@ -50,6 +50,13 @@ static constexpr uint16_t EXPIRY_HOURS_MAX = 168;   // one week
 uint16_t prefs_expiry_hours();
 void     prefs_set_expiry_hours(uint16_t h);
 
+// SD-log append cadence in minutes. sdlog_loop() re-reads this every
+// pass, so a change takes effect without a reboot. Clamped to
+// [1, LOG_INTERVAL_MAX_MIN]; default SD_LOG_INTERVAL_DEFAULT_MIN.
+static constexpr uint16_t LOG_INTERVAL_MAX_MIN = 1440;   // one day
+uint16_t prefs_log_interval_min();
+void     prefs_set_log_interval_min(uint16_t m);
+
 // Per-sensor alias ("Greenhouse" instead of govee-a3f2c1), keyed on the
 // synthesized hostname. NOTE: returns a pointer into a shared static
 // buffer valid only until the next call — consume immediately (wrap in

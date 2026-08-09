@@ -1,6 +1,7 @@
 // sdlog.cpp — CSV data logging to the microSD card.
 //
-// Every SD_LOG_INTERVAL_MS, append one CSV row per sensor to a dated
+// Every prefs_log_interval_min() minutes (web-configurable, default
+// SD_LOG_INTERVAL_DEFAULT_MIN), append one CSV row per sensor to a dated
 // file /govee-YYYY-MM.csv (one per local calendar month). The card is
 // optional: if it is absent or the mount fails, sdlog_begin() disables
 // logging and the dashboard runs normally.
@@ -116,7 +117,9 @@ static void csv_quoted(File& f, const char* s) {
 void sdlog_loop() {
   if (!s_active) return;
   uint32_t now = millis();
-  if (now - s_last_log_ms < SD_LOG_INTERVAL_MS) return;
+  // Pref re-read every pass so a web-side change applies immediately.
+  uint32_t interval_ms = (uint32_t)prefs_log_interval_min() * 60000UL;
+  if (now - s_last_log_ms < interval_ms) return;
   s_last_log_ms = now;
 
   if (state_active_count() == 0) return;   // nothing to log yet

@@ -8,7 +8,7 @@
 
 #pragma once
 
-#define FW_VERSION       "0.1.1"
+#define FW_VERSION       "0.2.0"
 
 // ---------------------------------------------------------------------------
 // Display (ILI9341, HSPI bus, 240x320 portrait native -> rotated to 320x240)
@@ -74,7 +74,7 @@
 #define SD_SPI_FREQ_HZ     20000000     // SD owns VSPI; 20 MHz is safe on the CYD
 #define SD_LOG_PREFIX      "/govee-"    // dated log files: /govee-YYYY-MM.csv
 #define SD_LOG_FILENAME    "/govee-log.csv"  // pre-NTP fallback (before the clock is set)
-#define SD_LOG_INTERVAL_MS 300000       // append a row per sensor every 5 minutes
+#define SD_LOG_INTERVAL_DEFAULT_MIN 5   // default append cadence; runtime value is a pref (gdash-ui "logmin")
 
 // NTP — UTC wall-clock for the CSV timestamp column. Falls back to
 // uptime-seconds until the first sync (the LAN may have no internet).
