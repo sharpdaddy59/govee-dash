@@ -73,6 +73,16 @@ jobs:
             find build -type f
             exit 1
           fi
+          # The on-device OTA handler refuses any image that lacks the
+          # identity marker (FW_ID_MARKER, config.h). The marker is only
+          # embedded because ota.cpp references the FWID constant — if a
+          # refactor ever severed that reference the linker would GC it
+          # and every deployed unit would reject this release. Fail the
+          # build instead of shipping an un-flashable image.
+          if ! grep -aqF '#FWID#govee-dash#' "$BIN"; then
+            echo "::error::FW_ID_MARKER missing from $BIN — deployed devices would reject this OTA image"
+            exit 1
+          fi
           TAG="${GITHUB_REF_NAME}"
           mkdir -p dist
           cp "$BIN" "dist/govee-dash-${TAG}.bin"
