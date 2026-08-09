@@ -26,9 +26,57 @@
 #include <Update.h>
 
 #include "ota.h"
+#include "config.h"
 
 static WebServer* s_server = nullptr;
 static String     s_error;            // empty = no error so far
+
+// --- Firmware identity check -----------------------------------------------
+// The uploaded image must contain FW_ID_MARKER (config.h) somewhere in
+// its bytes. This constant is that marker's home in the running image:
+// referencing it here is what embeds it, so every govee-dash .bin
+// carries it and a .bin from any other project doesn't.
+static const char   FWID[]   = FW_ID_MARKER;
+static const size_t FWID_LEN = sizeof(FWID) - 1;
+static bool         s_fwid_found = false;
+// Last FWID_LEN-1 stream bytes, so a marker split across two upload
+// chunks is still seen.
+static uint8_t      s_fwid_tail[sizeof(FWID) - 2];
+static size_t       s_fwid_tail_len = 0;
+
+static bool fwid_in(const uint8_t* b, size_t n) {
+  for (size_t i = 0; n >= FWID_LEN && i <= n - FWID_LEN; i++)
+    if (b[i] == FWID[0] && memcmp(b + i, FWID, FWID_LEN) == 0) return true;
+  return false;
+}
+
+static void fwid_scan(const uint8_t* buf, size_t len) {
+  if (s_fwid_found || len == 0) return;
+  // A match spanning the chunk boundary lies entirely inside
+  // (previous tail + first FWID_LEN-1 bytes of this chunk).
+  if (s_fwid_tail_len) {
+    uint8_t win[2 * (sizeof(FWID) - 2)];
+    size_t head = len < FWID_LEN - 1 ? len : FWID_LEN - 1;
+    memcpy(win, s_fwid_tail, s_fwid_tail_len);
+    memcpy(win + s_fwid_tail_len, buf, head);
+    if (fwid_in(win, s_fwid_tail_len + head)) { s_fwid_found = true; return; }
+  }
+  if (fwid_in(buf, len)) { s_fwid_found = true; return; }
+  // Carry the last FWID_LEN-1 bytes of (tail + chunk) forward.
+  if (len >= FWID_LEN - 1) {
+    memcpy(s_fwid_tail, buf + len - (FWID_LEN - 1), FWID_LEN - 1);
+    s_fwid_tail_len = FWID_LEN - 1;
+  } else {
+    size_t total = s_fwid_tail_len + len;
+    if (total > FWID_LEN - 1) {
+      size_t drop = total - (FWID_LEN - 1);
+      memmove(s_fwid_tail, s_fwid_tail + drop, s_fwid_tail_len - drop);
+      s_fwid_tail_len -= drop;
+    }
+    memcpy(s_fwid_tail + s_fwid_tail_len, buf, len);
+    s_fwid_tail_len += len;
+  }
+}
 
 // POST /ota/upload — chunk handler, called repeatedly during the upload.
 static void handle_upload_chunk() {
@@ -36,6 +84,8 @@ static void handle_upload_chunk() {
   switch (up.status) {
     case UPLOAD_FILE_START:
       s_error = "";
+      s_fwid_found = false;
+      s_fwid_tail_len = 0;
       Serial.printf("[ota] upload start: \"%s\"\n", up.filename.c_str());
       // UPDATE_SIZE_UNKNOWN: size the write against the whole spare app
       // partition. Update enforces the real image length internally.
@@ -47,6 +97,7 @@ static void handle_upload_chunk() {
 
     case UPLOAD_FILE_WRITE:
       if (s_error.length()) return;
+      fwid_scan(up.buf, up.currentSize);
       if (Update.write(up.buf, up.currentSize) != up.currentSize) {
         s_error = Update.errorString();
         Serial.printf("[ota] write failed: %s\n", s_error.c_str());
@@ -55,6 +106,12 @@ static void handle_upload_chunk() {
 
     case UPLOAD_FILE_END:
       if (s_error.length()) return;
+      if (!s_fwid_found) {
+        Update.abort();
+        s_error = "not a govee-dash image (identity marker missing)";
+        Serial.println("[ota] rejected: identity marker not found");
+        return;
+      }
       if (Update.end(true)) {
         Serial.printf("[ota] OK: %u bytes flashed\n", (unsigned)up.totalSize);
       } else {

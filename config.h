@@ -8,7 +8,17 @@
 
 #pragma once
 
-#define FW_VERSION       "0.2.0"
+#define FW_VERSION       "0.2.1"
+
+// OTA identity marker. Lives in this image's rodata (ota.cpp references
+// it) and must appear somewhere in any *uploaded* image before the OTA
+// handler will flash it — rejecting a wrong-project .bin that the chip
+// check alone can't catch (every CYD firmware here is plain ESP32; the
+// ESP-IDF app descriptor is no help — Arduino builds all stamp the
+// generic "arduino-lib-builder" project name). Consequence: images older
+// than the version that introduced the marker can only be downgraded to
+// over USB.
+#define FW_ID_MARKER     "#FWID#govee-dash#"
 
 // ---------------------------------------------------------------------------
 // Display (ILI9341, HSPI bus, 240x320 portrait native -> rotated to 320x240)
